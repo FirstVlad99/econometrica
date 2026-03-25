@@ -2,6 +2,7 @@ library(dplyr)
 library(ggplot2)
 library(readxl)
 # читаю данные
+setwd("/home/user/builds/Github/econometrica/Induvidual1")
 data <- read_excel("data.xlsx")
 
 # обработка данных
@@ -69,6 +70,14 @@ summary(model_log_all)
 data_filtered$pred_log_all <- exp(predict(model_log_all, newdata = data_filtered))
 mape_log_all <- mean(abs(data_filtered$outcome - data_filtered$pred_log_all) / data_filtered$outcome) * 100
 mape_log_all
+
+# визуализация логарифмических данных (общая)
+ggplot(data_filtered, aes(x = log(income), y = log(outcome))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Логарифическая зависимость инвестиций от доходов",
+       x = "log(Среднедушевые доходы) (руб.)",
+       y = "log(Инвестиции в жилища)")
 # MAPE = 138% лучше, но все еще очень высоко для общей модели
 # модель для Карелии
 karelia <- data_filtered %>% filter(region == "Республика Карелия")
@@ -92,7 +101,7 @@ ggplot(karelia,  aes(x = income/1000, y = outcome)) +
   geom_smooth(method = "lm", se = FALSE, color = "blue") +
   scale_y_continuous(labels = scales::comma_format(big.mark = " ", suffix = " млн")) +
   scale_x_continuous(labels = scales::comma_format(big.mark = " ")) +
-  labs(title = "Логарифмированная зависимость инвестиций от доходов (Карелия)",
+  labs(title = "Зависимость инвестиций от доходов (Карелия)",
        x = "Среднедушевые доходы (тыс. руб)",
        y = "Инвестиции в жилища (млн. руб)") +
   theme_minimal()
