@@ -46,8 +46,13 @@ data$federal_district <- as.factor(data$federal_district)
 
 
 # Множественная линейная регрессия
-model_multi <- lm(outcome ~ income + population + distance_to_moscow + latitude + federal_district,
-                  data = data)
+model_multi <- lm(
+  outcome ~ income * federal_district +
+    population +
+    distance_to_moscow +
+    latitude,
+  data = data
+)
 
 summary(model_multi)
 accuracy(model_multi)
@@ -57,8 +62,10 @@ model_std <- lm.beta(model_multi)
 model_std
 
 # Проверка мультиколлинеарности
-vif(model_multi)
+vif(model_multi, type = "predictor")
 
+# Значимость всей регрессии
+summary(model_multi)$fstatistic
 
 # Корреляционный анализ (cor_matrix и corrplot) показал:
 # Самая сильная корреляция наблюдается между population и outcome (инвестиции), 
@@ -77,16 +84,40 @@ vif(model_multi)
 # - VIF показывает высокую коллинеарность для distance_to_moscow (VIF ~27) и federal_district (VIF ~136 для набора категориальных переменных),
 #   что может искажать оценки отдельных коэффициентов, но модель в целом остаётся интерпретируемой для главных факторов.
 
+# Частные уравнения регрессии
+coef(model_multi)
+
+cat("Частное уравнение по доходу:\n")
+cat("Y = const +", coef(model_multi)["income"], "* income\n\n")
+
+cat("Частное уравнение по населению:\n")
+cat("Y = const +", coef(model_multi)["population"], "* population\n\n")
+
+cat("Частное уравнение по расстоянию:\n")
+cat("Y = const", coef(model_multi)["distance_to_moscow"], "* distance_to_moscow\n\n")
+
+cat("Частное уравнение по широте:\n")
+cat("Y = const", coef(model_multi)["latitude"], "* latitude\n\n")
+
 # Оценка коэффициентов эластичности (лог-лог модель)
 data <- data %>%
   mutate(log_outcome = log(outcome),
          log_income = log(income),
          log_population = log(population))
 
-model_log <- lm(log_outcome ~ log_income + log_population + distance_to_moscow + latitude + federal_district,
-                data = data)
+model_log <- lm(
+  log_outcome ~ log_income * federal_district +
+    log_population +
+    distance_to_moscow +
+    latitude,
+  data = data
+)
 summary(model_log)
 
+# Значимость логарифмической модели
+summary(model_log)$fstatistic
+
+# Эластичности
 elasticities <- sapply(names(coef(model_log))[-1], function(var){
   if(var %in% c("log_income","log_population")){
     coef(model_log)[var]   # прямые эластичности
@@ -116,23 +147,119 @@ elasticities
 # Прогноз для Карелии
 karelia <- data %>% filter(region == "Республика Карелия", year==2012)
 pred_karelia <- predict(model_log, newdata=karelia, interval="prediction", level=0.95)
-pred_karelia <- exp(pred_karelia)  # возвращаемся из логарифмов
+pred_karelia <- exp(pred_karelia)
+
+pred_karelia
+
+# Точечный и интервальный прогноз
+fact <- karelia$outcome
+forecast_value <- pred_karelia[1,"fit"]
+lower <- pred_karelia[1,"lwr"]
+upper <- pred_karelia[1,"upr"]
+
+cat("Факт:", fact, "\n")
+cat("Прогноз:", forecast_value, "\n")
+cat("Нижняя граница:", lower, "\n")
+cat("Верхняя граница:", upper, "\n")
+
+# Ошибка прогноза
+abs_error <- abs(fact - forecast_value)
+rel_error <- abs_error / fact * 100
+
+cat("Абсолютная ошибка:", abs_error, "\n")
+cat("Относительная ошибка (%):", rel_error, "\n")
 
 # Визуализация прогноза для Карелии
-ggplot(data, aes(x=income, y=outcome)) +
-  geom_point(alpha=0.3) +
-  # реальные инвестиции Карелии
-  geom_point(data=karelia, aes(x=income, y=outcome, color="Реальные инвестиции"), size=3) +
-  # прогноз модели
-  geom_point(data=karelia, aes(x=income, y=pred_karelia[,"fit"], color="Прогноз модели"), size=3, shape=17) +
-  geom_smooth(method="lm", se=FALSE, color="red") +
-  scale_color_manual(name="Легенда", values=c("Реальные инвестиции"="green", "Прогноз модели"="orange")) +
-  scale_y_continuous(labels = scales::comma_format(big.mark=" ", suffix=" млн")) +
-  scale_x_continuous(labels = scales::comma_format(big.mark=" ")) +
-  labs(title="Прогноз инвестиций (Карелия, 2012)", x="Доход", y="Инвестиции")
+ggplot() +
+  
+  # Все регионы (ФО)
+  geom_point(
+    data = data,
+    aes(x = income / 1000,
+        y = outcome,
+        color = federal_district),
+    alpha = 0.3
+  ) +
+  
+  # Линии регрессии по ФО
+  geom_smooth(
+    data = data,
+    aes(x = income / 1000,
+        y = outcome,
+        color = federal_district,
+        group = federal_district),
+    method = "lm",
+    se = FALSE
+  ) +
+  
+  # Факт Карелии
+  geom_point(
+    data = karelia,
+    aes(x = income / 1000,
+        y = outcome,
+        color = "Карелия (факт)"),
+    size = 3
+  ) +
+  
+  # Прогноз Карелии
+  geom_point(
+    data = karelia,
+    aes(x = income / 1000,
+        y = forecast_value,
+        color = "Карелия (прогноз)"),
+    size = 3,
+    shape = 17
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Центральный федеральный округ" = "#1f77b4",
+      "Северо-Западный федеральный округ" = "#ff7f0e",
+      "Южный федеральный округ" = "#2ca02c",
+      "Северо-Кавказский федеральный округ" = "#d62728",
+      "Приволжский федеральный округ" = "#9467bd",
+      "Уральский федеральный округ" = "#8c564b",
+      "Сибирский федеральный округ" = "#e377c2",
+      "Дальневосточный федеральный округ" = "#7f7f7f",
+      
+      "Карелия (факт)" = "black",
+      "Карелия (прогноз)" = "orange"
+    )
+  ) +
+  
+  scale_y_continuous(
+    labels = scales::comma_format(big.mark = " ", suffix = " млн")
+  ) +
+  
+  scale_x_continuous(
+    labels = scales::comma_format(big.mark = " ", suffix = " тыс. руб.")
+  ) +
+  
+  labs(
+    title = "Регрессии по федеральным округам + Карелия",
+    x = "Доход, тыс. руб.",
+    y = "Инвестиции, млн",
+    color = "Объект"
+  )
 
 
-# Диагностика остатков
-plot(residuals(model_multi), main="Остатки множественной регрессии", 
-     ylab="Остатки", xlab="Наблюдения")
+# Исследование неоднородности данных
+
+# Остатки модели
+plot(residuals(model_multi),
+     main="Остатки множественной регрессии",
+     ylab="Остатки",
+     xlab="Наблюдения")
+
 abline(h=0, col="red")
+
+# Ящики с усами 
+boxplot(data$outcome,
+        main = "Проверка выбросов инвестиций",
+        ylab = "Инвестиции (млн руб.)")
+
+
+boxplot(data$population / 1e6,
+        main = "Проверка выбросов населения",
+        ylab = "Население (млн человек)")
+
